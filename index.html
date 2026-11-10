@@ -492,7 +492,7 @@
       ],
       2: [
         Q("Excel 一鍵開關『篩選』功能的快捷鍵是？", ["Ctrl+Shift+L","Ctrl+Alt+F","Ctrl+F3","Alt+Shift+F"], 0, "一列一列肉眼找資料，課長等得鬍子都白了！"),
-        Q("和 VLOOKUP 相比，XLOOKUP 的主要優點是？", ["可以往左查找，不受欄位順序限制","只能查詢數字資料","只能在舊版 Excel 使用","計算速度一定較慢"], 0, "還在硬插欄位配合 VLOOKUP，表格被你改成迷宮！"),
+        Q("XLOOKUP 比 VLOOKUP 好在哪？", ["可以往左查找","只能查數字","只能用舊版","一定比較慢"], 0, "還在硬插欄位配合 VLOOKUP，表格被你改成迷宮！"),
         Q("要把幾千列銷售資料依地區、月份快速彙總，最適合用？", ["樞紐分析表","合併儲存格","註解功能","凍結窗格"], 0, "手動複製貼上彙總，漏掉三筆還渾然不知！"),
         Q("VLOOKUP 回傳 #N/A，最常見的原因是？", ["在查找範圍裡找不到查詢值","公式太長","工作表被保護","字型太小"], 0, "看到 #N/A 就重灌 Excel，課長說你太浪漫！"),
         Q("Word 的『追蹤修訂』功能位在哪個索引標籤？", ["校閱","參考資料","版面配置","檢視"], 0, "改了合約卻沒留記錄，法務問你誰改的，你說『鬼』！"),
@@ -947,6 +947,7 @@
       initAudio();
       checkChallenge();
       document.getElementById('start-screen').style.display = 'none';
+      document.querySelector('.iphone-status-bar').style.display = 'none'; // 遊戲中不顯示假的手機狀態列，把空間留給對話
       
       currentLevel = 1; // 確保從第一關開始
       totalScore = 0;
@@ -1125,7 +1126,7 @@
         if (isDead) return;
         addBossMsg(q.q);
         const labels = ['A', 'B', 'C', 'D'];
-        optionsArea.classList.toggle('one-col', q.options.some(o => o.length > 8));
+        optionsArea.classList.toggle('one-col', q.options.some(o => [...o].reduce((w, ch) => w + (ch.charCodeAt(0) < 256 ? 0.55 : 1), 0) > 13)); // 以字寬估算：中文算 1、英數算 0.55，超過 13 才改單欄，盡量維持雙欄省空間
         q.options.forEach((opt, index) => {
           const btn = document.createElement('button');
           btn.className = 'option-btn';
