@@ -146,6 +146,26 @@
     #btn-revive, #btn-giveup { justify-content: center; text-align: center; }
     .tool-btn, .overlay-btn { white-space: nowrap; }
     .overlay img { width: auto; max-width: min(320px, 100%); max-height: 58vh; object-fit: contain; }
+  
+    /* 結算畫面可捲動、成績單面板 */
+    .overlay { overflow-y: auto; justify-content: safe center; }
+    .overlay img { max-height: 46vh; margin-bottom: 10px; }
+    .overlay-btn { padding: 10px; font-size: .95rem; }
+    #title-badge { color: #ffd60a; font-weight: bold; font-size: .95rem; margin-bottom: 10px; min-height: 1.2em; }
+    #report-panel { position: absolute; inset: 0; background: #f2f2f7; z-index: 3000; display: none; flex-direction: column; text-align: left; }
+    #report-panel .rp-body { flex: 1; overflow-y: auto; padding: 16px; }
+    #report-panel .rp-title { font-size: 1.25rem; font-weight: 800; color: #1c1c1e; }
+    #report-panel .rp-sub { color: #636366; font-size: .85rem; margin: 4px 0 12px; }
+    #report-panel .rp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    #report-panel .rp-card { background: #fff; border-radius: 10px; padding: 10px; }
+    #report-panel .rp-card b { display: block; font-size: 1.2rem; color: #007aff; }
+    #report-panel .rp-card span { font-size: .75rem; color: #8e8e93; }
+    #report-panel h4 { margin: 6px 0 8px; font-size: 1rem; color: #1c1c1e; }
+    #report-panel .rp-miss { background: #fff; border-radius: 10px; padding: 10px; margin-bottom: 8px; font-size: .85rem; line-height: 1.5; color: #1c1c1e; }
+    #report-panel .rp-miss .q { font-weight: bold; }
+    #report-panel .rp-miss .no { color: #ff3b30; } #report-panel .rp-miss .yes { color: #248a3d; } #report-panel .rp-miss .roast { color: #8e8e93; font-size: .8rem; }
+    #report-panel .rp-foot { display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom,0px)); background: #fff; border-top: 1px solid #ddd; }
+    #report-panel .rp-foot button { flex: 1; padding: 11px; border: none; border-radius: 8px; font-weight: bold; font-size: .95rem; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -223,8 +243,10 @@
     <!-- 結算畫面 -->
     <div class="overlay" id="overlay">
       <img id="result-meme" src="" alt="通知單">
+      <div id="title-badge"></div>
       <div class="overlay-btns">
         <button class="overlay-btn btn-download" onclick="downloadMeme()">💾 儲存圖片發限動</button>
+        <button class="overlay-btn" id="btn-report" style="background:#5856d6; color:white;" onclick="openReport()">📋 成績單與錯題複習</button>
         <button class="overlay-btn btn-share" id="btn-next-level" style="display:none; background:#ffcc00; color:#333;" onclick="startNextLevel()">📞 準備接聽下一通</button>
         <button class="overlay-btn btn-share" id="btn-copy-link" onclick="copyChallengeLink()">🔗 複製踢館連結抓交替</button>
         <button class="overlay-btn" id="btn-retry" style="display:none; background:#ff9500; color:white;" onclick="retryLevel()">🔁 從這一關重來</button>
@@ -950,7 +972,7 @@
       document.querySelector('.iphone-status-bar').style.display = 'none'; // 遊戲中不顯示假的手機狀態列，把空間留給對話
       
       currentLevel = 1; // 確保從第一關開始
-      totalScore = 0;
+      totalScore = 0; runStats = freshStats(); usedEvents = [];
       showIncomingCall();
     }
 
@@ -1019,6 +1041,7 @@
 
     function initChatGame() {
       levelStartScore = totalScore; // 本關起點，供「從這一關重來」還原分數
+      levelStartStats = JSON.parse(JSON.stringify(runStats)); eventsThisLevel = 0; lastEventAt = -9;
       currentQuestionIndex = 0;
       hp = 3; // 每一關重置容錯率
       isDead = false;
@@ -1050,6 +1073,116 @@
 
     let lastMemeType = '', prevHp = 3, answered = false, currentQ = null, lastReason = '', reviveUsed = false;
 
+
+    // ===== 成績單 / 稱號 / 錯題複習 =====
+    const freshStats = () => ({ correct: 0, wrong: 0, timeouts: 0, streak: 0, bestStreak: 0, mistakes: [], killedIk: false, events: 0, eventsWon: 0 });
+    let runStats = freshStats(), levelStartStats = freshStats(), reportInfo = { title: '', sub: '' };
+    function recordCorrect() { runStats.correct++; if (++runStats.streak > runStats.bestStreak) runStats.bestStreak = runStats.streak; }
+    function recordMistake(q, yours) {
+      runStats.wrong++; runStats.streak = 0;
+      if (yours === undefined) runStats.timeouts++;
+      if (!runStats.mistakes.some(m => m.q === q.q)) runStats.mistakes.push({ lv: currentLevel, q: q.q, yours: yours === undefined ? '（超時未作答）' : yours, right: q.options[q.correct], roast: q.memeDeath || '' });
+    }
+    function pickTitle(type, complete) {
+      const s = runStats, lv = currentLevel;
+      if (type === '人事命令') {
+        if (!complete) return [gameData.levels[lv].playerTitle, `撐過第 ${lv} 關，準備接聽下一通電話。`];
+        if (s.wrong === 0) return ['準時下班的傳說', '全程零失誤，連主管都懷疑你偷看答案。'];
+        if (s.timeouts >= 3) return ['最後一秒才回覆的人', '每題都壓線交卷，心臟比職位還強。'];
+        if (s.bestStreak >= 12) return ['KPI 收割機', '連續答對的氣勢，讓老闆開始擔心你想搶他的位子。'];
+        if (s.events >= 3 && s.eventsWon === s.events) return ['EQ 滿分的老油條', '每個突發狀況都應付得漂亮。'];
+        return ['職場老油條', '撐過五關，你已經學會什麼時候該裝傻、什麼時候該裝懂。'];
+      }
+      if (s.killedIk) return ['馬屁沒拍到位的勇者', '有些真話，在主管面前是致命的。'];
+      if (s.timeouts >= 2 && s.timeouts * 2 >= s.wrong) return ['已讀不回大師', '不是不會，是來不及回。'];
+      if (lv === 1) return ['試用期都撐不過的新人', '第一關就被送走，組長流下惋惜的眼淚。'];
+      if (lv >= 4) return ['差一點就升官的鬥士', '離頂端只差一步，公司永遠欠你一個職位。'];
+      return ['被奪命連環 Call 擊倒的社畜', '別難過，明天還有下一通。'];
+    }
+    function buildReport(type, complete) {
+      const [title, sub] = pickTitle(type, complete); reportInfo = { title, sub };
+      document.getElementById('title-badge').textContent = `🏅 稱號：${title}`;
+    }
+    function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+    function openReport() {
+      let panel = document.getElementById('report-panel');
+      if (!panel) { panel = el('div'); panel.id = 'report-panel'; container.appendChild(panel); }
+      const s = runStats, total = s.correct + s.wrong, rate = total ? Math.round(s.correct / total * 100) : 0;
+      panel.innerHTML = '';
+      const body = el('div', 'rp-body');
+      body.append(el('div', 'rp-title', `🏅 ${reportInfo.title}`), el('div', 'rp-sub', reportInfo.sub));
+      const grid = el('div', 'rp-grid');
+      [[`${rate}%`, `答對率（${s.correct}/${total}）`], [`${s.bestStreak} 題`, '最長連續答對'], [`${s.timeouts} 次`, '超時未回覆'], [`${s.eventsWon}/${s.events}`, '突發狀況化解']].forEach(([b, t]) => {
+        const c = el('div', 'rp-card'); c.append(el('b', '', b), el('span', '', t)); grid.append(c);
+      });
+      body.append(grid, el('h4', '', s.mistakes.length ? `📝 錯題複習（${s.mistakes.length} 題）` : '🎉 沒有錯題，主管無話可說'));
+      s.mistakes.forEach(m => {
+        const d = el('div', 'rp-miss');
+        d.append(el('div', 'q', `第 ${m.lv} 關｜${m.q}`), el('div', 'no', `✗ 你的答案：${m.yours}`), el('div', 'yes', `✓ 正確答案：${m.right}`));
+        if (m.roast) d.append(el('div', 'roast', `💬 ${m.roast}`));
+        body.append(d);
+      });
+      const foot = el('div', 'rp-foot');
+      const copy = el('button', '', '📋 複製成績'); copy.style.cssText = 'background:#e5e5ea;color:#333';
+      copy.onclick = async () => {
+        const txt = `我在《社畜防線》拿到稱號【${reportInfo.title}】，答對率 ${rate}%、最長連對 ${s.bestStreak} 題！${location.href.split('?')[0]}`;
+        let ok = false; try { await navigator.clipboard.writeText(txt); ok = true; } catch (e) {} if (!ok) ok = legacyCopy(txt);
+        showToast(ok ? '✅ 成績已複製' : '複製失敗');
+      };
+      const close = el('button', '', '返回'); close.style.cssText = 'background:#007aff;color:#fff'; close.onclick = () => { panel.style.display = 'none'; };
+      foot.append(copy, close); panel.append(body, foot); panel.style.display = 'flex'; body.scrollTop = 0;
+    }
+
+    // ===== 突發狀況：題目之間偶爾插入，答對回血、答錯扣血（最低留 1 滴）=====
+    const EVENTS = [
+      { lines: ["【突發】我剛傳了一張早安長輩圖給你。", "你有看到嗎？"], opts: ["沒看到","已讀不回","收到，好圖！","轉傳全公司"], c: 2, win: "還是你上道。", lose: "你是不是在無視我？" },
+      { lines: ["【突發】@你 這份報表怎麼還沒好？", "我在群組標你了！"], opts: ["群組罵回去","私訊說明進度","假裝網路斷","已讀不回"], c: 1, win: "有進度就好，辛苦了。", lose: "大家都看到你在逃避。" },
+      { lines: ["【突發】下班前突然有件急事。", "你可以幫忙一下嗎？"], opts: ["說明優先序","直接說不要","默默接下加班","假裝離職"], c: 0, win: "嗯，那我找別人。", lose: "你是不是不團隊？" },
+      { lines: ["【突發】我剛看了你寄給客戶的信。", "有一個錯字。"], opts: ["推給系統","道歉補寄更正","說客戶會懂","刪信裝死"], c: 1, win: "知錯能改，很好。", lose: "客戶已經截圖轉傳了。" },
+      { lines: ["【突發】影印機卡紙了！", "客戶就在會議室等資料！"], opts: ["先改用電子檔","把客戶請走","罵影印機","假裝不在"], c: 0, win: "臨危不亂，加分。", lose: "客戶等到快睡著了。" },
+      { lines: ["【突發】我三分鐘後要開會。", "你怎麼還沒到？"], opts: ["謊稱在路上","老實說並趕到","說電腦壞了","直接關機"], c: 1, win: "誠實，下次早點。", lose: "我剛好看到你在茶水間。" },
+      { lines: ["【突發】我臨時要跟你視訊！", "你現在背景是……？"], opts: ["亂糟糟房間","開背景模糊","鏡頭蓋住","說網路不好"], c: 1, win: "有備而來，不錯。", lose: "我看到你的內衣曬在後面了。" },
+      { lines: ["【突發】客戶送了一箱水果給部門。", "你打算怎麼處理？"], opts: ["獨吞帶回家","依規登記分享","丟掉","轉賣"], c: 1, win: "守規矩，很好。", lose: "稽核室剛好打來問。" },
+      { lines: ["【突發】有人在群組貼了公司密碼！", "你看到了嗎？"], opts: ["立刻通知資安","默默截圖","假裝沒看到","跟著貼"], c: 0, win: "反應很快，謝謝。", lose: "密碼已經被外流了。" },
+      { lines: ["【突發】我今天沒喝咖啡。", "心情不太好。"], opts: ["幫您泡一杯","你自己去買","我也沒喝","請去健身"], c: 0, win: "貼心，今天放你一馬。", lose: "你是不是不想幹了？" }
+    ];
+    let usedEvents = [], eventsThisLevel = 0, lastEventAt = -9;
+    function shouldEvent() {
+      return currentQuestionIndex >= 3 && currentQuestionIndex <= currentQuestions.length - 3 && eventsThisLevel < 2 && currentQuestionIndex - lastEventAt >= 4 && Math.random() < 0.28;
+    }
+    function runEvent(done) {
+      eventsThisLevel++; lastEventAt = currentQuestionIndex; runStats.events++;
+      let pool = EVENTS.map((e, i) => i).filter(i => !usedEvents.includes(i)); if (!pool.length) { usedEvents = []; pool = EVENTS.map((e, i) => i); }
+      const idx = pool[Math.floor(Math.random() * pool.length)]; usedEvents.push(idx);
+      const ev = EVENTS[idx]; answered = true; clearInterval(timerInterval); timerProgress.style.animation = 'none'; timerProgress.style.width = '0%';
+      optionsArea.innerHTML = ''; btnIntern.disabled = true; chatHeader.innerHTML = '<span class="online-dot" style="background:#ff9500"></span>⚡ 突發狀況';
+      let i = 0;
+      const next = () => {
+        if (i < ev.lines.length) return bossSay(ev.lines[i++], next);
+        const order = shuffleArray(ev.opts.map((t, k) => ({ t, ok: k === ev.c })));
+        optionsArea.classList.toggle('one-col', order.some(o => [...o.t].reduce((w, ch) => w + (ch.charCodeAt(0) < 256 ? 0.55 : 1), 0) > 13));
+        order.forEach((o, k) => {
+          const btn = document.createElement('button'); btn.className = 'option-btn';
+          btn.innerHTML = `<span class="lab">${'ABCD'[k]}</span><span class="txt"></span>`; btn.querySelector('.txt').textContent = o.t;
+          btn.onclick = () => {
+            const all = [...optionsArea.querySelectorAll('.option-btn')]; all.forEach(b => b.disabled = true);
+            btn.classList.add(o.ok ? 'right' : 'wrong'); if (!o.ok) all[order.findIndex(x => x.ok)].classList.add('right');
+            addPlayerMsg(o.t);
+            if (o.ok) {
+              sfx.correct(); runStats.eventsWon++; const heal = hp < 3; if (heal) hp++; updateHP();
+              setTimeout(() => bossSay(ev.win + (heal ? ' ❤️ 血量 +1' : ' 👍 平安度過'), () => setTimeout(done, 700)), 500);
+            } else {
+              sfx.wrong(); container.classList.add('shake'); setTimeout(() => container.classList.remove('shake'), 400);
+              const hurt = hp > 1; if (hurt) hp--; updateHP();
+              setTimeout(() => bossSay(ev.lose + (hurt ? ' 💔 血量 -1' : ' 😮‍💨 還好你只剩最後一滴血，這次放過你'), () => setTimeout(done, 700)), 500);
+            }
+          };
+          optionsArea.appendChild(btn);
+        });
+      };
+      next();
+    }
+
     function addBossMsg(text, style = '') {
       const lv = gameData.levels[currentLevel];
       const m = document.createElement('div');
@@ -1070,8 +1203,9 @@
     }
     function lockOptions() { answered = true; document.querySelectorAll('.option-btn').forEach(b => b.disabled = true); }
     function nextOrComplete() {
-      if (currentQuestionIndex >= currentQuestions.length - 1) handleLevelComplete();
-      else { currentQuestionIndex++; loadQuestion(); }
+      if (currentQuestionIndex >= currentQuestions.length - 1) return handleLevelComplete();
+      currentQuestionIndex++;
+      if (shouldEvent()) runEvent(loadQuestion); else loadQuestion();
     }
 
     function markSeen(lv, text) {
@@ -1178,9 +1312,9 @@
       addPlayerMsg(qData.options[selectedIndex]);
       if (ok) {
         sfx.correct();
-        setTimeout(() => { totalScore++; nextOrComplete(); }, 800);
+        recordCorrect(); setTimeout(() => { totalScore++; nextOrComplete(); }, 800);
       } else {
-        processWrongAnswer("答錯了！", qData);
+        processWrongAnswer("答錯了！", qData, qData.options[selectedIndex]);
       }
     }
 
@@ -1208,7 +1342,7 @@
     
     function retryLevel() {
       document.getElementById('overlay').style.display = 'none';
-      totalScore = levelStartScore;
+      totalScore = levelStartScore; runStats = JSON.parse(JSON.stringify(levelStartStats));
       showIncomingCall();
     }
     function startNextLevel() {
@@ -1217,11 +1351,13 @@
       showIncomingCall();
     }
 
-    function processWrongAnswer(reasonPrefix, qData) {
+    function processWrongAnswer(reasonPrefix, qData, yours) {
+      recordMistake(qData, yours);
       sfx.wrong(); if (navigator.vibrate) navigator.vibrate(200);
       container.classList.add('shake');
       setTimeout(() => container.classList.remove('shake'), 400);
       hp = qData.instantKill ? 0 : hp - 1;
+      if (hp <= 0) runStats.killedIk = !!qData.instantKill;
       updateHP();
       if (hp <= 0) {
         triggerDeath(`${reasonPrefix}\n${qData.memeDeath}`);
@@ -1355,7 +1491,7 @@
     function loadImg(src) { return new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; }); }
     let memeToken = 0, lastResult = { dataUrl: '', fileName: '' };
     function generateMeme(reason, type, isGameComplete) {
-      lastMemeType = type; const tok = ++memeToken; const lvAtDraw = currentLevel;
+      lastMemeType = type; buildReport(type, isGameComplete); const tok = ++memeToken; const lvAtDraw = currentLevel;
       const faceSrc = AVATAR_IMG[currentLevel] || 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(avatarVector(currentLevel).replace('<svg ', '<svg width="200" height="200" '));
       Promise.all([loadImg(faceSrc), loadImg(type === '人事命令' ? TEMPLATE_IMG : FIRE_IMG)])
         .then(([face, tpl]) => { if (tok === memeToken) drawMeme(reason, type, isGameComplete, face, tpl, lvAtDraw); });
