@@ -187,7 +187,21 @@
         <div id="company-line" style="font-weight:bold; color:#7a1b1b; margin-bottom:8px;"></div>
         <p style="color: #666; font-size: 0.9rem;">請輸入姓名完成打卡<br>(請開啟聲音體驗)</p>
         <input type="text" id="player-name" placeholder="輸入姓名..." maxlength="8">
-        <button onclick="triggerIncomingCall()">打卡上班</button>
+        <button id="btn-resume" style="display:none; background:#06c755; margin-bottom:10px;"></button>
+        <button id="btn-start" onclick="triggerIncomingCall()">打卡上班</button>
+      </div>
+    </div>
+
+    <!-- 內建瀏覽器提示：建議改用外部瀏覽器 -->
+    <div id="ext-modal" style="display:none;position:absolute;inset:0;z-index:300;background:rgba(0,0,0,.8);align-items:center;justify-content:center;padding:20px;">
+      <div style="background:#fff;border-radius:16px;padding:22px 18px;width:100%;max-width:340px;text-align:center;color:#333;">
+        <div style="font-size:2rem;">🌐</div>
+        <h3 style="margin:6px 0 8px;">建議用瀏覽器開啟</h3>
+        <p id="ext-desc" style="font-size:.9rem;line-height:1.6;color:#555;margin-bottom:14px;"></p>
+        <p id="ext-hint" style="font-size:.85rem;line-height:1.5;color:#d9480f;margin-bottom:10px;display:none;"></p>
+        <button id="ext-open" class="overlay-btn" style="width:100%;background:#06c755;color:#fff;margin-bottom:8px;">用瀏覽器開啟</button>
+        <button id="ext-copy" class="overlay-btn" style="width:100%;background:#007aff;color:#fff;margin-bottom:8px;">複製連結</button>
+        <button id="ext-stay" class="overlay-btn" style="width:100%;background:#e5e5ea;color:#555;">繼續在這裡玩（進度會自動儲存）</button>
       </div>
     </div>
 
@@ -250,7 +264,7 @@
         <button class="overlay-btn btn-share" id="btn-next-level" style="display:none; background:#ffcc00; color:#333;" onclick="startNextLevel()">📞 準備接聽下一通</button>
         <button class="overlay-btn btn-share" id="btn-copy-link" onclick="copyChallengeLink()">🔗 複製踢館連結抓交替</button>
         <button class="overlay-btn" id="btn-retry" style="display:none; background:#ff9500; color:white;" onclick="retryLevel()">🔁 從這一關重來</button>
-        <button class="overlay-btn" id="btn-restart" style="background:#555; color:white;" onclick="location.reload()">🔄 重新投履歷</button>
+        <button class="overlay-btn" id="btn-restart" style="background:#555; color:white;" onclick="clearSave();location.reload()">🔄 重新投履歷</button>
       </div>
     </div>
   </div>
@@ -967,6 +981,7 @@
       if(nameInput) playerName = nameInput;
       
       initAudio();
+      clearSave();
       checkChallenge();
       document.getElementById('start-screen').style.display = 'none';
       document.querySelector('.iphone-status-bar').style.display = 'none'; // 遊戲中不顯示假的手機狀態列，把空間留給對話
@@ -1244,6 +1259,8 @@
       const lv = gameData.levels[currentLevel];
       const q = currentQ = currentQuestions[currentQuestionIndex];
       markSeen(currentLevel, q.q);
+      const keepHidden = resumeHidden; resumeHidden = null; hiddenOpts = keepHidden || [];
+      saveCheckpoint('question');
       if (!bgm.timer) startBGM(currentLevel); // 復活後恢復配樂
       answered = true;
       chatHeader.innerHTML = `<span class="online-dot"></span>${lv.title}`;
@@ -1269,6 +1286,7 @@
           optionsArea.appendChild(btn);
         });
         answered = false;
+        if (hiddenOpts.length) optionsArea.querySelectorAll('.option-btn').forEach((b, i) => { if (hiddenOpts.includes(i)) b.classList.add('hidden'); });
         btnIntern.disabled = internUsed;
         startTimer(lv.timeLimit, q);
       }, 700);
@@ -1287,6 +1305,7 @@
       timerProgress.offsetHeight;
       timerProgress.style.animation = `countdown ${seconds}s linear forwards`;
       timerInterval = setInterval(tickTimer, 100);
+      if (document.hidden) { clearInterval(timerInterval); timerPausedLeft = seconds * 1000; timerProgress.style.animationPlayState = 'paused'; }
     }
     // 切到其他分頁（例如看廣告）時暫停倒數，回來再繼續，不會因為離開而被判超時
     document.addEventListener('visibilitychange', () => {
@@ -1332,6 +1351,7 @@
         endCallScreen.style.display = 'none';
         const levelData = gameData.levels[currentLevel];
         
+        if (currentLevel >= 5) clearSave(); else saveCheckpoint('call', currentLevel + 1);
         if (currentLevel >= 5) {
           generateMeme(`成功撐過所有主管的摧殘，獲封【${levelData.playerTitle}】！`, '人事命令', true);
         } else {
@@ -1343,6 +1363,7 @@
     function retryLevel() {
       document.getElementById('overlay').style.display = 'none';
       totalScore = levelStartScore; runStats = JSON.parse(JSON.stringify(levelStartStats));
+      saveCheckpoint('call', currentLevel);
       showIncomingCall();
     }
     function startNextLevel() {
@@ -1368,7 +1389,7 @@
     }
 
     function triggerDeath(reason) {
-      isDead = true; lastReason = reason; stopBGM();
+      isDead = true; lastReason = reason; stopBGM(); clearSave();
       clearInterval(timerInterval);
       timerProgress.style.animation = 'none';
       timerProgress.style.width = '0%';
@@ -1386,47 +1407,38 @@
       document.getElementById('btn-giveup').onclick = () => generateMeme(lastReason.replace(/\n/g, ' '), '電子資遣通知單', false);
     }
 
+    // --- 廣告：先給獎勵並存檔，最後才開廣告（LINE / Threads 內建瀏覽器會直接跳走） ---
+    function openAd() {
+      try { window.open(AD_URL, '_blank'); } catch (e) { location.href = AD_URL; }
+    }
+
     // --- 模組 2：廣告道具 (刪除錯誤選項) ---
     function useInternAd() {
-      if(internUsed || isDead) return;
-      window.open(AD_URL, '_blank');
-      
+      if (internUsed || isDead) return;
       internUsed = true;
       btnIntern.disabled = true;
-      
-      // 延遲執行刪除選項邏輯
-      setTimeout(() => {
-        const qData = currentQuestions[currentQuestionIndex];
-        const btns = document.querySelectorAll('.option-btn');
-        let removed = 0;
-        // 隨機選兩個非正確答案隱藏
-        for (let i = 0; i < btns.length; i++) {
-          if (i !== qData.correct && removed < 2) {
-            btns[i].classList.add('hidden');
-            removed++;
-          }
-        }
-      }, 1000); // 模擬廣告延遲
+      const qData = currentQuestions[currentQuestionIndex];
+      const btns = document.querySelectorAll('.option-btn');
+      let removed = 0; hiddenOpts = [];
+      for (let i = 0; i < btns.length; i++) {
+        if (i !== qData.correct && removed < 2) { btns[i].classList.add('hidden'); hiddenOpts.push(i); removed++; }
+      }
+      saveCheckpoint('question');
+      openAd();
     }
 
     // --- 模組 3：廣告復活 (土下座) ---
-    function watchAdToRevive(reason) {
+    function watchAdToRevive() {
       if (reviveUsed) return; reviveUsed = true;
-      window.open(AD_URL, '_blank');
-      
-      setTimeout(() => {
-        isDead = false;
-        hp = 1; // 復活後給予 1 滴血
-        updateHP();
-        
-        const reviveMsg = document.createElement('div');
-        reviveMsg.className = 'message-system';
-        reviveMsg.innerHTML = '<span>—— 啟動土下座救援，主管再給你一次機會 ——</span>';
-        chatWindow.appendChild(reviveMsg);
-        
-        // 重新載入當前題目
-        loadQuestion();
-      }, 1000);
+      isDead = false;
+      hp = 1; // 復活後給予 1 滴血
+      updateHP();
+      const reviveMsg = document.createElement('div');
+      reviveMsg.className = 'message-system';
+      reviveMsg.innerHTML = '<span>—— 啟動土下座救援，主管再給你一次機會 ——</span>';
+      chatWindow.appendChild(reviveMsg);
+      loadQuestion(); // 內含存檔
+      openAd();
     }
 
     // --- 模組 1：Canvas 迷因生成 (高質感重製) ---
@@ -1658,7 +1670,7 @@
     }
     async function copyChallengeLink() {
       const baseUrl = window.location.href.split('?')[0];
-      const challengeUrl = `${baseUrl}?boss=${encodeURIComponent(playerName)}&score=${totalScore}`;
+      const challengeUrl = `${baseUrl}?boss=${encodeURIComponent(playerName)}&score=${totalScore}&openExternalBrowser=1`;
       let ok = false;
       if (navigator.clipboard && window.isSecureContext) {
         try { await navigator.clipboard.writeText(challengeUrl); ok = true; } catch (e) {}
@@ -1667,6 +1679,95 @@
       if (ok) showToast('✅ 連結已複製，快貼到 Threads 或 IG 抓交替！');
       else window.prompt('複製失敗，請長按下方網址手動複製：', challengeUrl);
     }
+
+    // ===== 進度存檔 / 接關 =====
+    const SAVE_KEY = 'shechang_save_v1', SAVE_TTL = 24 * 3600 * 1000;
+    let hiddenOpts = [], resumeHidden = null;
+    function saveCheckpoint(phase, level) {
+      try {
+        const isCall = phase === 'call';
+        localStorage.setItem(SAVE_KEY, JSON.stringify({
+          v: 1, ts: Date.now(), phase: phase || 'question',
+          playerName, currentLevel: level || currentLevel, currentQuestionIndex: isCall ? 0 : currentQuestionIndex,
+          totalScore, hp, levelStartScore, internUsed, reviveUsed,
+          currentQuestions: isCall ? [] : currentQuestions, runStats, levelStartStats,
+          usedEvents, eventsThisLevel, lastEventAt, hiddenOpts: isCall ? [] : hiddenOpts
+        }));
+      } catch (e) {}
+    }
+    function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+    function readSave() {
+      try {
+        const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+        if (!s || s.v !== 1 || Date.now() - s.ts > SAVE_TTL) return null;
+        if (!gameData.levels[s.currentLevel]) return null;
+        if (s.phase === 'question' && !(s.currentQuestions && s.currentQuestions[s.currentQuestionIndex])) return null;
+        return s;
+      } catch (e) { return null; }
+    }
+    function resumeGame() {
+      const s = readSave(); if (!s) return;
+      playerName = s.playerName || playerName; currentLevel = s.currentLevel;
+      currentQuestionIndex = s.currentQuestionIndex || 0; totalScore = s.totalScore || 0;
+      hp = s.hp || 3; prevHp = hp; levelStartScore = s.levelStartScore || 0;
+      internUsed = !!s.internUsed; reviveUsed = !!s.reviveUsed;
+      currentQuestions = s.currentQuestions || [];
+      runStats = s.runStats || freshStats(); levelStartStats = s.levelStartStats || freshStats();
+      usedEvents = s.usedEvents || []; eventsThisLevel = s.eventsThisLevel || 0;
+      lastEventAt = (s.lastEventAt === undefined ? -9 : s.lastEventAt);
+      isDead = false; answered = true;
+      initAudio(); checkChallenge();
+      document.getElementById('start-screen').style.display = 'none';
+      document.querySelector('.iphone-status-bar').style.display = 'none';
+      if (s.phase === 'call') { showIncomingCall(); return; }
+      resumeHidden = s.hiddenOpts || [];
+      chatWindow.innerHTML = '<div class="message-system"><span>已回到對話，繼續作答</span></div>';
+      updateHP(); loadQuestion();
+    }
+
+    // ===== 內建瀏覽器偵測：建議改用外部瀏覽器 =====
+    const IN_APP = (() => {
+      const ua = navigator.userAgent || '';
+      if (/\bLine\//i.test(ua)) return 'LINE';
+      if (/Instagram|Barcelona|Threads/i.test(ua)) return 'Threads / Instagram';
+      if (/FBAN|FBAV|FB_IAB/i.test(ua)) return 'Facebook';
+      return '';
+    })();
+    (function initStartExtras() {
+      const save = readSave();
+      if (save) {
+        const where = save.phase === 'call' ? `第 ${save.currentLevel} 關・待接聽` : `第 ${save.currentLevel} 關・第 ${save.currentQuestionIndex + 1} 題`;
+        const rb = document.getElementById('btn-resume');
+        rb.textContent = `▶ 繼續上次進度（${where}）`; rb.style.display = 'block'; rb.onclick = resumeGame;
+        document.getElementById('btn-start').textContent = '重新打卡（從頭開始）';
+        if (save.playerName) document.getElementById('player-name').value = save.playerName;
+      }
+      let dismissed = false; try { dismissed = localStorage.getItem('ext_dismissed') === '1'; } catch (e) {}
+      if (!IN_APP || dismissed || save) return;
+      const modal = document.getElementById('ext-modal'), hint = document.getElementById('ext-hint');
+      const showHint = t => { hint.textContent = t; hint.style.display = 'block'; };
+      document.getElementById('ext-desc').textContent = `偵測到你正在使用 ${IN_APP} 的內建瀏覽器。看廣告時可能會直接跳離遊戲，甚至不小心把遊戲關掉。改用瀏覽器開啟就不會有這個問題。`;
+      modal.style.display = 'flex';
+      document.getElementById('ext-open').onclick = () => {
+        const ua = navigator.userAgent, u = new URL(location.href);
+        if (IN_APP === 'LINE') {
+          u.searchParams.set('openExternalBrowser', '1'); location.href = u.toString();
+        } else if (/Android/i.test(ua)) {
+          location.href = `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${u.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(location.href)};end`;
+        }
+        setTimeout(() => showHint('如果沒有自動跳轉，請點畫面右上角或下方的「⋯／分享」圖示，選擇「用瀏覽器開啟」，或按下方「複製連結」貼到 Chrome / Safari。'), 1500);
+      };
+      document.getElementById('ext-copy').onclick = async () => {
+        let ok = false;
+        if (navigator.clipboard && window.isSecureContext) { try { await navigator.clipboard.writeText(location.href); ok = true; } catch (e) {} }
+        if (!ok) ok = legacyCopy(location.href);
+        showHint(ok ? '✅ 連結已複製，請打開 Chrome 或 Safari 貼上網址。' : '複製失敗，請長按網址列手動複製。');
+      };
+      document.getElementById('ext-stay').onclick = () => {
+        try { localStorage.setItem('ext_dismissed', '1'); } catch (e) {}
+        modal.style.display = 'none';
+      };
+    })();
   </script>
 </body>
 </html>
